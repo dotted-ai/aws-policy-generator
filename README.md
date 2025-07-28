@@ -1,6 +1,7 @@
 # AWS IAM Policy Generator
 
 A modern web application that provides an intuitive interface for creating and customizing AWS IAM policies. Build IAM policies visually by selecting AWS services, actions, and resources through an easy-to-use interface rather than writing JSON manually.
+<img width="1702" height="944" alt="Screenshot 2025-07-28 at 18 51 29" src="https://github.com/user-attachments/assets/3a43beff-6504-48e9-97f6-2c102f6ce08d" />
 
 ## Features
 
