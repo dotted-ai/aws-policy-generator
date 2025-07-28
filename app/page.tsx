@@ -11,7 +11,8 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Copy, Download, Plus, Trash2, AlertCircle, CheckCircle } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Copy, Download, Plus, Trash2, AlertCircle, CheckCircle, Code, Settings } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 
 interface PolicyStatement {
@@ -158,6 +159,9 @@ export default function AWSPolicyGenerator() {
   const [customAction, setCustomAction] = useState("")
   const [customResource, setCustomResource] = useState("")
   const [validationErrors, setValidationErrors] = useState<string[]>([])
+  const [jsonInput, setJsonInput] = useState("")
+  const [jsonErrors, setJsonErrors] = useState<string[]>([])
+  const [activeTab, setActiveTab] = useState("visual")
 
   const generatePolicy = (): PolicyDocument => {
     return {
@@ -202,7 +206,100 @@ export default function AWSPolicyGenerator() {
     const policy = generatePolicy()
     const errors = validatePolicy(policy)
     setValidationErrors(errors)
-  }, [statements])
+    
+    // Update JSON input when statements change (only if we're not currently editing JSON)
+    if (activeTab === "visual") {
+      setJsonInput(JSON.stringify(policy, null, 2))
+    }
+  }, [statements, activeTab])
+
+  const parseJsonPolicy = (jsonString: string): { policy: PolicyDocument | null; errors: string[] } => {
+    const errors: string[] = []
+    
+    if (!jsonString.trim()) {
+      return { policy: null, errors: ["JSON input is empty"] }
+    }
+    
+    try {
+      const parsed = JSON.parse(jsonString)
+      
+      // Basic structure validation
+      if (!parsed.Version) {
+        errors.push("Missing 'Version' field")
+      } else if (parsed.Version !== "2012-10-17") {
+        errors.push("Version should be '2012-10-17' for current AWS policy language")
+      }
+      
+      if (!parsed.Statement) {
+        errors.push("Missing 'Statement' field")
+      } else if (!Array.isArray(parsed.Statement)) {
+        errors.push("'Statement' must be an array")
+      } else {
+        // Validate each statement
+        parsed.Statement.forEach((stmt: any, index: number) => {
+          if (!stmt.Effect || (stmt.Effect !== "Allow" && stmt.Effect !== "Deny")) {
+            errors.push(`Statement ${index + 1}: Effect must be 'Allow' or 'Deny'`)
+          }
+          
+          if (!stmt.Action && !stmt.NotAction) {
+            errors.push(`Statement ${index + 1}: Must specify 'Action' or 'NotAction'`)
+          }
+          
+          if (!stmt.Resource && !stmt.NotResource) {
+            errors.push(`Statement ${index + 1}: Must specify 'Resource' or 'NotResource'`)
+          }
+        })
+      }
+      
+      if (errors.length === 0) {
+        // Normalize the policy format
+        const normalizedPolicy: PolicyDocument = {
+          Version: parsed.Version,
+          Statement: parsed.Statement.map((stmt: any) => ({
+            effect: stmt.Effect,
+            actions: Array.isArray(stmt.Action) ? stmt.Action : (stmt.Action ? [stmt.Action] : []),
+            resources: Array.isArray(stmt.Resource) ? stmt.Resource : (stmt.Resource ? [stmt.Resource] : []),
+            conditions: stmt.Condition,
+          }))
+        }
+        return { policy: normalizedPolicy, errors: [] }
+      }
+      
+      return { policy: null, errors }
+    } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : "Invalid JSON format"
+      return { policy: null, errors: [`JSON Parse Error: ${errorMessage}`] }
+    }
+  }
+
+  const applyJsonPolicy = () => {
+    const { policy, errors } = parseJsonPolicy(jsonInput)
+    
+    if (errors.length > 0) {
+      setJsonErrors(errors)
+      return
+    }
+    
+    if (policy) {
+      // Convert policy statements to internal format
+      const newStatements: PolicyStatement[] = policy.Statement.map((stmt, index) => ({
+        id: Date.now().toString() + index,
+        effect: stmt.effect,
+        actions: stmt.actions || [],
+        resources: stmt.resources || [],
+        conditions: stmt.conditions,
+      }))
+      
+      setStatements(newStatements)
+      setJsonErrors([])
+      setActiveTab("visual")
+      
+      toast({
+        title: "Policy Applied",
+        description: "JSON policy has been successfully applied to the visual editor.",
+      })
+    }
+  }
 
   const addStatement = () => {
     const newStatement: PolicyStatement = {
@@ -312,6 +409,26 @@ export default function AWSPolicyGenerator() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Policy Builder */}
         <div className="space-y-6">
+          <Tabs value={activeTab} onValueChange={(value) => {
+            if (value === "json" && activeTab === "visual") {
+              // Sync current policy to JSON when switching to JSON mode
+              const policy = generatePolicy()
+              setJsonInput(JSON.stringify(policy, null, 2))
+            }
+            setActiveTab(value)
+          }} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="visual" className="flex items-center gap-2">
+                <Settings className="w-4 h-4" />
+                Visual Builder
+              </TabsTrigger>
+              <TabsTrigger value="json" className="flex items-center gap-2">
+                <Code className="w-4 h-4" />
+                JSON Editor
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="visual" className="space-y-6 mt-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
@@ -514,6 +631,99 @@ export default function AWSPolicyGenerator() {
               </div>
             </CardContent>
           </Card>
+            </TabsContent>
+            
+            <TabsContent value="json" className="space-y-6 mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    JSON Policy Editor
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setJsonInput("")
+                          setJsonErrors([])
+                        }}
+                        className="border-accent/30 hover:bg-accent hover:text-accent-foreground bg-transparent"
+                      >
+                        Clear
+                      </Button>
+                      <Button
+                        onClick={applyJsonPolicy}
+                        size="sm"
+                        className="bg-accent hover:bg-accent/90 text-accent-foreground"
+                      >
+                        Apply JSON
+                      </Button>
+                    </div>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {jsonErrors.length > 0 && (
+                    <Alert className="mb-4 border-red-200 bg-red-50">
+                      <AlertCircle className="h-4 w-4 text-red-600" />
+                      <AlertDescription>
+                        <div className="font-medium mb-2 text-red-800">JSON Validation Errors:</div>
+                        <ul className="list-disc list-inside space-y-1">
+                          {jsonErrors.map((error, index) => (
+                            <li key={index} className="text-sm text-red-700">
+                              {error}
+                            </li>
+                          ))}
+                        </ul>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">Policy JSON</Label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          try {
+                            const parsed = JSON.parse(jsonInput)
+                            setJsonInput(JSON.stringify(parsed, null, 2))
+                            toast({
+                              title: "JSON Formatted",
+                              description: "JSON has been formatted successfully.",
+                            })
+                          } catch (e) {
+                            toast({
+                              title: "Format Error",
+                              description: "Invalid JSON format. Please check your syntax.",
+                              variant: "destructive",
+                            })
+                          }
+                        }}
+                        className="border-accent/30 hover:bg-accent hover:text-accent-foreground bg-transparent"
+                      >
+                        Format JSON
+                      </Button>
+                    </div>
+                    <Textarea
+                      value={jsonInput}
+                      onChange={(e) => {
+                        setJsonInput(e.target.value)
+                        setJsonErrors([]) // Clear errors when user starts typing
+                      }}
+                      placeholder="Paste or edit your IAM policy JSON here..."
+                      className="font-mono text-sm h-[500px] resize-none"
+                    />
+                  </div>
+                  
+                  <div className="mt-4 p-3 bg-muted rounded-lg">
+                    <p className="text-sm text-muted-foreground">
+                      <strong>Tip:</strong> You can paste an existing IAM policy JSON here and click "Apply JSON" to load it into the visual builder, or manually edit the JSON and apply your changes.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Policy Output */}
@@ -521,7 +731,12 @@ export default function AWSPolicyGenerator() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                Generated Policy
+                <div className="flex items-center gap-2">
+                  Generated Policy
+                  <Badge variant="outline" className="text-xs">
+                    {activeTab === "visual" ? "Visual Mode" : "JSON Mode"}
+                  </Badge>
+                </div>
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
