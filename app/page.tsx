@@ -14,6 +14,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Copy, Download, Plus, Trash2, AlertCircle, CheckCircle, Code, Settings, Upload } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
+import Footer from "@/components/footer"
 
 interface PolicyStatement {
   id: string
@@ -919,6 +920,8 @@ export default function AWSPolicyGenerator() {
           </Card>
         </div>
       </div>
+      
+      <Footer />
     </div>
   )
 }
